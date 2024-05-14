@@ -1,34 +1,38 @@
+# LIBRARY
 library(shiny)
 library(DT)
 library(readxl)
 library(dplyr)
 library(leaflet)
 library(ggplot2)
+library(bslib)
+library(thematic)
+library(rsconnect)
 
-# CHARGEMENT DU DATASET
+
+# DATASET
 resto <- read_excel("resto_RS.xlsx")
 
-# Convertir les colonnes "longitude" et "latitude" en nombres
+# Converting column types
 resto$longitude <- as.numeric(resto$longitude)
 resto$latitude <- as.numeric(resto$latitude)
 resto$cost_two_people <- as.numeric(resto$cost_two_people)
 resto$rate <- as.integer(resto$rate)
 
-# Obtenir une liste unique de types de cuisine
+# unique list of cuisine types
 cuisine_list <- unique(unlist(strsplit(as.character(resto$cuisines), ", ")))
 
 #UI
 ui <- fluidPage(
-  titlePanel("Bangalore_What restaurant for today?"),
+  theme = bs_theme(preset = "united"),
+  br(), 
+  titlePanel("Bangaluru_What restaurant for today?"),
+  br(),
   br(),
   sidebarLayout(
-    
     sidebarPanel(
-      
-      h4(
-        "Choose your restaurant",
-        style = "color:#FFB700; font-weight:bold;"),
-      
+      h4("Choose your restaurant",
+         style = "color:#FFB700; font-weight:bold;"),
       selectInput(
         inputId = "rest_type",
         label = "Restaurant type ? ",
@@ -48,7 +52,7 @@ ui <- fluidPage(
       hr(),
       h4("Enter your address coordinates",
          style = "color:#FFB700; font-weight:bold;"),
-      a(em("(You can find out your coords on this website)"),
+      a(em("(You can find out your coordinates on this website)"),
         href = "https://www.coordonnees-gps.fr/"),
       br(),
       br(),
@@ -65,20 +69,19 @@ ui <- fluidPage(
       img(src = "bengaluru.png",
           width = 300,
           height = 120,
-          style = "display: block; margin: 0 auto;")
+          style = "display: block; margin: 0 auto;"
+      )
     ),
-    
     mainPanel(
-      
       tabsetPanel(
-        
+        # TAB1
         tabPanel(
           h3("List of Restaurants"),
           tableOutput("nom_restaurant"),
           h3("Map"),
           leafletOutput("map")
         ),
-        
+        # TAB2
         tabPanel(
           h3("Dataset Analysis"),
           br(),
@@ -103,22 +106,28 @@ ui <- fluidPage(
              style = "color:#FFB700; font-weight:bold;"),
           dataTableOutput("means")
         ),
-        
+        # TAB3
         tabPanel(
           h3("Dataset"),
-          tableOutput("resto") 
+          DTOutput("resto"),
+          br(),
+          br(),
+          fluidRow(
+            column(
+              width = 12,
+              align = "center",
+              downloadButton("download_data", label = "Download Dataset")
+            )
+          )
         )
       )
     )
   )
 )
 
-
 # SERVER
 server <- function(input, output) {
-  
-  
-  # reactive value (for home coordinates)
+  # Reactive expression (for home coordinates)
   home_coords <- reactive({
     if (!is.na(as.numeric(input$latitude_input)) 
         && !is.na(as.numeric(input$longitude_input))) {
@@ -146,27 +155,31 @@ server <- function(input, output) {
     return(filtered)
   })
   
+  ## Reactive expression for means by city
+  mean_by_city <- reactive({
+    resto %>%
+      group_by(location) %>%
+      summarize(average_rate = round(mean(rate, na.rm = TRUE), 2),
+                average_price = round(mean(cost_two_people, na.rm = TRUE), 2))
+  })
   
-  
-  # TAB1 : Render table of filtered restaurants
+  # TAB1 
+  ## list of filtered restaurants
   output$nom_restaurant <- renderUI({
     filtered <- filtered_restaurants()
-    
     if(nrow(filtered) == 0) {
-      message <- "<h3 style='color: #871b4f;'>Sorry, there are no restaurants matching your criteria.</h3>
-                      <h3 style='color: #871b4f;'>Open yourself to new flavors !</h3>
-                      <img src='smiley.jpeg' alt='Image' width='100' height='100'>"
+      message <- "<br><h4 style='color: #aad3df;'>Sorry, we couldn't find any restaurants that match your criteria.</h4>
+      <h4 style='color: #aad3df;'>Explore new flavors!</h4>
+      <img src='smiley.jpeg' alt='Image' width='70' height='70'>"
       HTML(message)
     } else {
       renderTable(filtered[, c("name", "rate", "address", "phone")])
     }
   })
   
-  
-  # TAB1 : Render leaflet map
+  ## Map for home and restaurant
   output$map <- renderLeaflet({
     no_restaurants <- nrow(filtered_restaurants()) == 0
-    
     if (no_restaurants) {
       leaflet() %>%
         addTiles() %>%
@@ -181,9 +194,9 @@ server <- function(input, output) {
         addMarkers(data = home_coords(), lng = ~lng, lat = ~lat, popup = "HOME", label = "HOME", icon = makeIcon("home.png", iconWidth = 28, iconHeight = 37))
     }
   })
-
   
-  # TAB2 : Render boxplot of restaurant rates
+  # TAB2
+  ## Boxplot
   output$boxplot_rates <- renderPlot({
     ggplot(resto, aes(y = rate)) +
       geom_boxplot(fill = "skyblue", color = "blue") +
@@ -193,7 +206,7 @@ server <- function(input, output) {
       theme(axis.text.x = element_blank())
   })
   
-  # TAB2 : Render scatter plot of restaurant price vs rate
+  ## Scatterplot
   output$price_vs_rate <- renderPlot({
     ggplot(resto, aes(x = rate, y = cost_two_people)) +
       geom_point(color = "blue") +
@@ -202,34 +215,39 @@ server <- function(input, output) {
       theme_minimal()
   })
   
-  # TAB2 : Render summary
+  ## Summary
   output$summary <- renderPrint({
     summary(filtered_restaurants())
   })
   
-  # TAB2 : Rate mean and price mean by city
-  mean_by_city <- reactive({
-    resto %>%
-      group_by(location) %>%
-      summarize(average_rate = round(mean(rate, na.rm = TRUE), 2),
-                average_price = round(mean(cost_two_people, na.rm = TRUE), 2))
-  })
-  
-  # TAB2 : mean rate and mean price by city
+  ## Mean rate and mean price by city
   output$means <- renderDataTable({
     mean_by_city()
   })
   
+  # TAB3 : 
   
-  # TAB3 : Render the entire dataset
-  output$resto <- renderTable({
+   ## Download file
+  output$download_data <- downloadHandler(
+    filename = function() {
+      paste("resto", ".csv", sep = "")
+    },
+    content = function(file) {
+      write.csv(resto, file, row.names = FALSE)
+    }
+  )
+  ## the entire dataset
+  output$resto <- renderDT({
     resto
   })
   
+  # Log download action
+  observe({
+    if (!is.null(input$download_data)) {
+      logAction(action = "Downloaded resto data")
+    }
+  })
 }
 
-    
-
-
-# Lancer l'application Shiny
+# ShinyApp
 shinyApp(ui = ui, server = server)
